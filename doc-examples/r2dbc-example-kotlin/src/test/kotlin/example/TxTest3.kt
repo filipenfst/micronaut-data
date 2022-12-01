@@ -3,11 +3,14 @@ package example
 import io.micronaut.data.model.query.builder.sql.Dialect
 import io.micronaut.data.r2dbc.annotation.R2dbcRepository
 import io.micronaut.data.repository.kotlin.CoroutineCrudRepository
+import io.micronaut.data.repository.reactive.ReactiveStreamsCrudRepository
 import io.micronaut.test.extensions.junit5.annotation.MicronautTest
 import jakarta.inject.Inject
 import jakarta.inject.Singleton
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.reactive.asFlow
+import kotlinx.coroutines.reactive.awaitSingle
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.*
 import java.util.*
@@ -27,7 +30,43 @@ class TxTest3 : AbstractTest(false) {
     fun `coroutines returning flow inside transaction`(): Unit = runBlocking {
         val records = (1..2).map { Record(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID()) }
 
-        recordTransactionalService.saveAll(records).collect { }
+        recordTransactionalService.saveAllUsingCoroutines(records).collect { }
+
+        Assertions.assertEquals(true, recordCoroutineRepository.existsByFoo(records[0].foo))
+        Assertions.assertEquals(true, recordCoroutineRepository.existsByBar(records[0].bar))
+        Assertions.assertEquals(true, recordCoroutineRepository.existsByFoo(records[1].foo))
+        Assertions.assertEquals(true, recordCoroutineRepository.existsByBar(records[1].bar))
+    }
+
+    @Test
+    fun `reactive streams returning flow inside transaction`(): Unit = runBlocking {
+        val records = (1..2).map { Record(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID()) }
+
+        recordTransactionalService.saveAllUsingReactiveStreams(records).collect { }
+
+        Assertions.assertEquals(true, recordCoroutineRepository.existsByFoo(records[0].foo))
+        Assertions.assertEquals(true, recordCoroutineRepository.existsByBar(records[0].bar))
+        Assertions.assertEquals(true, recordCoroutineRepository.existsByFoo(records[1].foo))
+        Assertions.assertEquals(true, recordCoroutineRepository.existsByBar(records[1].bar))
+    }
+
+    @Test
+    fun `coroutines suspending inside transaction`(): Unit = runBlocking {
+        val records = (1..2).map { Record(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID()) }
+
+        recordTransactionalService.saveAllSuspendingUsingCoroutines(records)
+
+        Assertions.assertEquals(true, recordCoroutineRepository.existsByFoo(records[0].foo))
+        Assertions.assertEquals(true, recordCoroutineRepository.existsByBar(records[0].bar))
+        Assertions.assertEquals(true, recordCoroutineRepository.existsByFoo(records[1].foo))
+        Assertions.assertEquals(true, recordCoroutineRepository.existsByBar(records[1].bar))
+    }
+
+    @Test
+    fun `reactive streams suspending inside transaction`(): Unit = runBlocking {
+        val records = (1..2).map { Record(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID()) }
+
+        recordTransactionalService.saveAllSuspendingUsingReactiveStreams(records)
 
         Assertions.assertEquals(true, recordCoroutineRepository.existsByFoo(records[0].foo))
         Assertions.assertEquals(true, recordCoroutineRepository.existsByBar(records[0].bar))
@@ -42,8 +81,26 @@ class TxTest3 : AbstractTest(false) {
 @R2dbcRepository(dialect = Dialect.POSTGRES)
 interface RecordTransactionalCoroutineRepository : CoroutineCrudRepository<Record, UUID>
 
+@Transactional(Transactional.TxType.MANDATORY)
+@R2dbcRepository(dialect = Dialect.POSTGRES)
+interface RecordTransactionalReactiveStreamsRepository : ReactiveStreamsCrudRepository<Record, UUID>
+
 @Singleton
 @Transactional
-open class RecordTransactionalService(private val repository: RecordTransactionalCoroutineRepository) {
-    open fun saveAll(records: Iterable<Record>): Flow<Record> = repository.saveAll(records)
+open class RecordTransactionalService(
+    private val coroutineRepository: RecordTransactionalCoroutineRepository,
+    private val reactiveStreamsRepository: RecordTransactionalReactiveStreamsRepository,
+) {
+    open fun saveAllUsingCoroutines(records: Iterable<Record>): Flow<Record> = coroutineRepository.saveAll(records)
+
+    open fun saveAllUsingReactiveStreams(records: Iterable<Record>): Flow<Record> =
+        reactiveStreamsRepository.saveAll(records).asFlow()
+
+    open suspend fun saveAllSuspendingUsingCoroutines(records: Iterable<Record>): List<Record> = records.map {
+        coroutineRepository.save(it)
+    }
+
+    open suspend fun saveAllSuspendingUsingReactiveStreams(records: Iterable<Record>): List<Record> = records.map {
+        reactiveStreamsRepository.save(it).awaitSingle()
+    }
 }
