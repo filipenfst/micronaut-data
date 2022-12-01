@@ -174,21 +174,23 @@ open class RecordDeclarativeTransactionalService(
         reactiveStreamsRepository.saveAll(records)
     }.asFlow()
 
-    open suspend fun saveAllSuspendingUsingCoroutines(records: Iterable<Record>): List<Record> =
-        r2dbcOperations.withTransaction {
+    open suspend fun saveAllSuspendingUsingCoroutines(records: Iterable<Record>): List<Record> {
+        return r2dbcOperations.withTransaction {
             mono {
                 records.map {
                     coroutineRepository.save(it)
                 }
             }
         }.awaitSingle()
+    }
 
-    open suspend fun saveAllSuspendingUsingReactiveStreams(records: Iterable<Record>): List<Record> =
-        r2dbcOperations.withTransaction {
+    open suspend fun saveAllSuspendingUsingReactiveStreams(records: Iterable<Record>): List<Record> {
+        return r2dbcOperations.withTransaction {
             mono {
                 records.map {
                     reactiveStreamsRepository.save(it).awaitSingle()
                 }
             }
         }.awaitSingle()
+    }
 }
